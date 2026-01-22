@@ -2,7 +2,7 @@
 
 ![License](https://img.shields.io/badge/License-MIT-green.svg) ![Platform](https://img.shields.io/badge/Platform-SD%20WebUI%20Forge-blue.svg) ![Cost](https://img.shields.io/badge/Cost-%240.01%2Fupscale-yellow.svg)
 
-A dedicated extension for **Stable Diffusion WebUI Forge** that integrates the [Wavespeed AI](https://wavespeed.ai) **SeedVR2 Upscaler**. This tool allows you to seamlessly upscale your generated images to **2k, 4k, or 8k** resolution directly within the Forge interface for just **$0.01 USD per upscale**.
+A dedicated extension for **Stable Diffusion WebUI Forge** that integrates the Wavespeed AI (https://wavespeed.ai) **SeedVR2 Upscaler**. This tool allows you to seamlessly upscale your generated images to **2k, 4k, or 8k** resolution directly within the Forge interface for just **$0.01 USD per upscale**.
 
 It features a streamlined workflow with "Grab Last Generated" functionality and a built-in aspect ratio corrector (center crop) to fix non-standard resolutions (e.g., trimming 1920x1088 to 1920x1080) prior to upscaling.
 
@@ -26,21 +26,19 @@ It features a streamlined workflow with "Grab Last Generated" functionality and 
 1. Open **WebUI Forge**.
 2. Navigate to the **Extensions** tab -> **Install from URL**.
 3. Paste the repository URL into the field:
-   ```text
-   [https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler](https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler)
-   ```
+   https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler
 4. Click **Install**.
 5. Go to the **Installed** tab and click **Apply and Restart UI**.
 
 ### Method 2: Manual Installation
 1. Navigate to your Forge `extensions` folder in your terminal:
-   ```bash
+   
    cd stable-diffusion-webui-forge/extensions
-   ```
+
 2. Clone this repository:
-   ```bash
-   git clone [https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler.git](https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler.git)
-   ```
+   
+   git clone https://github.com/sdprompts/forge-wavespeed-seedvr2-upscaler.git
+
 3. Restart the WebUI.
 
 ---
