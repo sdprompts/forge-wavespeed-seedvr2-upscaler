@@ -4,7 +4,7 @@ import json
 import time
 import base64
 import os
-import glob
+import math
 from io import BytesIO
 from PIL import Image
 
@@ -21,22 +21,28 @@ def image_to_base64(image):
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
     return f"data:image/png;base64,{img_str}"
 
-def center_crop_pil(img, target_w, target_h):
+def scale_to_total_pixels(img, target_pixels=350000):
     """
-    Centers and crops the image to target dimensions.
-    Used to trim 1920x1088 -> 1920x1080.
+    Resizes image to approximately 0.35MP while maintaining aspect ratio.
+    Using LANCZOS to prevent 'waxy' artifacts during the subsequent AI upscale.
     """
     w, h = img.size
+    aspect_ratio = w / h
+    # Calculate new height: h = sqrt(target / aspect)
+    new_h = math.sqrt(target_pixels / aspect_ratio)
+    new_w = new_h * aspect_ratio
     
-    # If the image is smaller than the target crop, return original to avoid errors
+    return img.resize((int(new_w), int(new_h)), Image.LANCZOS)
+
+def center_crop_pil(img, target_w, target_h):
+    """Centers and crops the image to target dimensions."""
+    w, h = img.size
     if target_w > w or target_h > h:
         return img
-        
     left = (w - target_w) / 2
     top = (h - target_h) / 2
     right = (w + target_w) / 2
     bottom = (h + target_h) / 2
-    
     return img.crop((left, top, right, bottom))
 
 def get_latest_generated_image():
@@ -68,34 +74,39 @@ def get_latest_generated_image():
     else:
         return None
 
-def upscale_image(api_key_input, input_image, image_url_input, resolution, out_fmt, enable_crop, crop_w, crop_h):
-    # 1. Try Input Box, 2. Try Settings
+def upscale_image(api_key_input, input_image, image_url_input, resolution, out_fmt, enable_crop, crop_w, crop_h, enable_downscale):
+    # 1. API Key Auth
     api_key = api_key_input.strip() if api_key_input else getattr(shared.opts, "wavespeed_api_key", "")
-    
     if not api_key:
         return None, "Error: Please enter your API Key in the box or in Settings."
 
-    # Determine Source
+    # 2. Source Handling & Pre-processing
     target_image = ""
     
-    # Logic: If using URL, we can't local crop easily. If using Input Image (PIL), we crop.
     if image_url_input and image_url_input.strip():
         target_image = image_url_input.strip()
-        # Note: We cannot crop a remote URL unless we download it first. 
-        # Assuming URL takes precedence and skips crop, or user must download it to 'img_input' first.
     elif input_image is not None:
-        # --- CROP LOGIC START ---
+        processed_img = input_image.copy()
+        
+        # Apply Center Crop if enabled
         if enable_crop:
             try:
-                input_image = center_crop_pil(input_image, int(crop_w), int(crop_h))
+                processed_img = center_crop_pil(processed_img, int(crop_w), int(crop_h))
             except Exception as e:
                 return None, f"Crop Error: {str(e)}"
-        # --- CROP LOGIC END ---
+        
+        # Apply 0.35MP Downscale if enabled (The "Magic" Step)
+        if enable_downscale:
+            try:
+                processed_img = scale_to_total_pixels(processed_img, 350000)
+            except Exception as e:
+                return None, f"Downscale Error: {str(e)}"
 
-        target_image = image_to_base64(input_image)
+        target_image = image_to_base64(processed_img)
     else:
         return None, "Error: Please upload an image or provide an Image URL."
 
+    # 3. API Payload
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -112,7 +123,6 @@ def upscale_image(api_key_input, input_image, image_url_input, resolution, out_f
     try:
         # Submit Task
         response = requests.post(API_URL, headers=headers, data=json.dumps(payload))
-        
         if response.status_code != 200:
             return None, f"Submission Error {response.status_code}: {response.text}"
             
@@ -127,7 +137,7 @@ def upscale_image(api_key_input, input_image, image_url_input, resolution, out_f
         headers_poll = {"Authorization": f"Bearer {api_key}"}
         
         start_time = time.time()
-        timeout = 120 
+        timeout = 180 # Increased timeout for higher resolutions
         
         while True:
             if time.time() - start_time > timeout:
@@ -148,7 +158,7 @@ def upscale_image(api_key_input, input_image, image_url_input, resolution, out_f
                     if img_res.status_code == 200:
                         ret_img = Image.open(BytesIO(img_res.content))
                         
-                        # Auto-Save
+                        # Auto-Save to Forge Extras Folder
                         out_dir = shared.opts.outdir_extras_samples or os.path.join(os.getcwd(), "outputs", "extras-images")
                         images.save_image(
                             image=ret_img,
@@ -169,7 +179,7 @@ def upscale_image(api_key_input, input_image, image_url_input, resolution, out_f
             elif status == "failed":
                 return None, f"Task Failed: {res_data.get('error')}"
             
-            time.sleep(1)
+            time.sleep(2) # Poll every 2 seconds to reduce API overhead
 
     except Exception as e:
         return None, f"System Error: {str(e)}"
@@ -179,17 +189,10 @@ def on_ui_settings():
     section = ('wavespeed', "Wavespeed AI")
     shared.opts.add_option(
         "wavespeed_api_key",
-        shared.OptionInfo(
-            "", 
-            "Wavespeed API Key", 
-            gr.Textbox, 
-            {"type": "password"}, 
-            section=section
-        )
+        shared.OptionInfo("", "Wavespeed API Key", gr.Textbox, {"type": "password"}, section=section)
     )
 
 def on_ui_tabs():
-    # Load default from settings if available
     saved_key = getattr(shared.opts, "wavespeed_api_key", "")
 
     with gr.Blocks(analytics_enabled=False) as wavespeed_interface:
@@ -197,7 +200,6 @@ def on_ui_tabs():
             with gr.Column():
                 gr.Markdown("### 🌊 Wavespeed AI - SeedVR2 Upscaler")
                 
-                # The input box defaults to the saved setting
                 api_input = gr.Textbox(
                     label="API Key", 
                     value=saved_key, 
@@ -209,13 +211,16 @@ def on_ui_tabs():
                     res_input = gr.Dropdown(label="Target Resolution", choices=["2k", "4k", "8k"], value="4k")
                     fmt_input = gr.Radio(label="Output Format", choices=["jpeg", "png", "webp"], value="png")
 
-                # --- NEW CROP UI ---
-                with gr.Accordion("✂️ Pre-Upscale Crop (Fix Aspect Ratio)", open=False):
-                    crop_chk = gr.Checkbox(label="Enable Center Crop", value=True)
+                # --- PRE-PROCESSING OPTIONS ---
+                with gr.Accordion("⚙️ Pre-Processing (Recommended)", open=True):
+                    downscale_chk = gr.Checkbox(
+                        label="Downscale to 0.35MP (Optimizes SeedVR2 details)", 
+                        value=True
+                    )
+                    crop_chk = gr.Checkbox(label="Enable Center Crop (Fix Aspect Ratio)", value=False)
                     with gr.Row():
                         crop_w = gr.Number(label="Crop Width", value=1920, precision=0)
                         crop_h = gr.Number(label="Crop Height", value=1080, precision=0)
-                # -------------------
 
                 with gr.Tab("Upload / Local"):
                     with gr.Row():
@@ -235,8 +240,10 @@ def on_ui_tabs():
 
         upscale_btn.click(
             fn=upscale_image,
-            # Added new inputs to the list: crop_chk, crop_w, crop_h
-            inputs=[api_input, img_input, url_input, res_input, fmt_input, crop_chk, crop_w, crop_h],
+            inputs=[
+                api_input, img_input, url_input, res_input, fmt_input, 
+                crop_chk, crop_w, crop_h, downscale_chk
+            ],
             outputs=[img_output, status_output]
         )
 
